@@ -12,7 +12,7 @@ def get_vocabulary_size(X):
 
 
 def fit_in_vocabulary(X, voc_size):
-    return [[w for w in x if w < voc_size] for x in X]
+    return [[w for w in x if (w < voc_size)] for x in X]
 
 
 def batch_generator(X, y, batch_size):
