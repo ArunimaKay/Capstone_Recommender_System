@@ -22,11 +22,11 @@ def batch_generator(X, y, batch_size):
     X_copy = np.array(X.copy())
     y_copy = np.array(y.copy())
     indices = np.arange(size)
-    print(f"Indices: ({len(indices)} elemements) sample: {indices[:10]}")
+    #print(f"Indices: ({len(indices)} elemements) sample: {indices[:10]}")
     np.random.shuffle(indices)
-    print(f"X_copy ({len(X_copy)} elements) sample: {X_copy[:10]}")
+    #print(f"X_copy ({len(X_copy)} elements) sample: {X_copy[:10]}")
     X_copy = X_copy[indices.astype(int)]
-    print(f"y_copy ({len(y_copy)} elements) sample: {y_copy[:10]}")
+    #print(f"y_copy ({len(y_copy)} elements) sample: {y_copy[:10]}")
     y_copy = y_copy[indices.astype(int)]
     i = 0
     while True:
