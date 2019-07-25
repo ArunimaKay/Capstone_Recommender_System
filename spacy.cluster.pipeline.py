@@ -346,7 +346,91 @@ from string import punctuation
 
 IGNORED_LEMMAS = ['-PRON-', 'PRON', 'i']
 IGNORED_POS = ['PUNCT', 'DET']
-MAX_FEATURES_PER_REVIEW = 10
+MAX_FEATURES_PER_REVIEW = 15
+MERGE_TOKENS = ["\'s", "\'t"]
+
+debug = False
+
+def get_word_scores(text_input, doc):
+	if debug:
+		print("Getting word scores for text:", text_input)
+	tokenlist = [token for token in doc if token.norm_.lower() not in stopWords]
+	wordlist = [token.norm_.lower() for token in tokenlist]
+	wordfreq = []
+	wordset = set(wordlist)
+	for word in wordset:
+	    wordfreq.append((word, np.log(wordlist.count(word)/len(wordlist))))
+    
+	s_word_freq = sorted(wordfreq, key=lambda pair : -pair[1])
+
+	term_freq_dict = dict(zip(wordset,wordfreq))
+	
+	if debug:
+		print("Sorted word frequency: ")
+		for pair in s_word_freq:
+			print(pair)
+
+	word_scores = {}
+
+	seen_tokens = set()
+
+	for token in doc:
+	    if token not in stopWords:
+	        lower_norm = token.norm_.lower()
+	        tf_pair = term_freq_dict.get(lower_norm)
+	        if (tf_pair is not None) and (lower_norm not in seen_tokens):
+	            tf = tf_pair[1]
+	            word_scores[lower_norm]=tf-token.prob
+	            seen_tokens.add(lower_norm)
+
+	return word_scores
+
+
+def merge_possible(prev_text, curr_text):
+    """Determine whether tokens can be merged, if the current token is a punctuated suffix"""
+
+    # First, check for a possessive "'s", after something other than punctuation
+    if (curr_text == "\'s") and (prev_text[len(prev_text)-1] not in punctuation):
+        return True
+    # Next, check for a "'t" following an n
+    elif (curr_text == "\'t") and (prev_text[len(prev_text)-1]=='n'):
+        return True
+    else:
+        return False
+
+
+def preprocess_doc(doc):
+    """Preprocess spacy doc, searching for incorrectly split ['n','\'t'] and [?,'\'s'], merging and retokenizing doc"""
+    merged = False
+    
+
+    prev_text = None
+    token_ind = 0
+    for token_ind in range(len(doc)):
+        
+        # The following is necessary because retokenization after merges shortens the list of tokens
+        if token_ind == len(doc):
+            break
+        
+        token = doc[token_ind]
+        this_text = token.norm_.lower()
+        if debug:
+            print("text:{}, lem:{}, pos:{}, tag:{}, dep:{}, shp:{}, alph:{}, stop:{}, norm:{}".format(token.text, token.lemma_, token.pos_, token.tag_, token.dep_, token.shape_, token.is_alpha, token.is_stop, token.norm_))
+        if (prev_text is not None) and (this_text in MERGE_TOKENS):
+            if merge_possible(prev_text, this_text):
+                with doc.retokenize() as retokenizer:
+                    retokenizer.merge(doc[(token_ind-1):(token_ind+1)], attrs={"NORM": prev_text+this_text})
+                    merged = True
+                    if debug:
+                        print("Merged {} and {}".format(prev_text, this_text))
+                    token_ind -= 1
+                
+                    
+        prev_text = this_text
+        
+    return merged
+
+
 
 def check_embedded_punctuation(input_str):
     """ Check for 2 sequential punctuation characters in a string """
@@ -400,42 +484,73 @@ def get_lemmatized_chunk(chunk):
 
 
 def get_vectors(text, nlp):
-    """ <generator> Get embedding word vectors from a given text object. 
-    Args
-    ----------
-    text (string)            text to be parsed, tokenized, and vectorized
-    nlp (spaCy pipeline)     pipeline to use for processing the input text
+	""" <generator> Get embedding word vectors from a given text object. 
+	Args
+	----------
+	text (string)            text to be parsed, tokenized, and vectorized
+	nlp (spaCy pipeline)     pipeline to use for processing the input text
     
-    Generates:
-    ----------
-    processed text (string) 
-    phrase vector (numpy.ndarray)
-    """          
-    # first, strip out the stop words and lowercase the words
-    text = ' '.join([word.lower() for word in text.split() if not word in stopWords])
+	Generates:
+	----------
+	processed text (string) 
+	phrase vector (numpy.ndarray)
+	"""          
+	# first, strip out the stop words and lowercase the words
+	text = ' '.join([word.lower() for word in text.split() if not word in stopWords])
     
-    doc = nlp(text)
-    #####
-    # Next, iterate through the sentences and within those the noun chunks.
-    # These noun chunks will be lemmatized and collected as potential features.
-    #####
+	doc = nlp(text)
+
+	# First, preprocess the text, retokenizing where spaCy has incorrectly split tokens
+	preprocess_doc(doc)
+	# Then, compute TF-IDF-style word scores for each word in the doc
+
+	try:
+		word_scores = get_word_scores(text, doc)
+	except ValueError as ve:
+		print("ERROR during word score computation for text:", text)
+		raise ve
     
-    collected_terms = []
-    term_vector_map = {}
+
+	#####
+	# Next, iterate through the sentences and within those the noun chunks.
+	# These noun chunks will be lemmatized and collected as potential features.
+	#####
     
-    for sent in doc.sents:
-        for chunk in sent.noun_chunks:
-            #yield chunk.text, chunk.vector
-            lemmatized_text, vect = get_lemmatized_chunk(chunk)
-            if len(lemmatized_text) >0:
-                collected_terms.append(lemmatized_text)
-                term_vector_map[lemmatized_text] = vect
+	collected_terms = []
+	term_vector_map = {}
+    
+	for sent in doc.sents:
+		for chunk in sent.noun_chunks:
+		#yield chunk.text, chunk.vector
+			lemmatized_text, vect = get_lemmatized_chunk(chunk)
+			if len(lemmatized_text) >0:
+				these_scores = []
+				for word in lemmatized_text.split():
+					this_score = word_scores.get(word)
+					if this_score is not None:
+						these_scores.append(this_score)
+					#else:
+					#	print("Token not found in word scores: This should never happen. Full text = '{}'. Lemmatized text = '{}', word = '{}'".format(text, lemmatized_text, word))
+					#	print("Word scores:")
+					#	for key, value in word_scores.items():
+					#		print("    {}:    {}".format(key, value))
+					#	raise ValueError("Token not found in word scores: This should never happen. Full text = '{}'. Lemmatized text = '{}', word = '{}'".format(text, lemmatized_text, word))
+
+				if len(these_scores) == 0:				
+					msg = "Processed text with no scores (probably all stop words). Full text = '{}', lemmatized text = '{}'".format(text, lemmatized_text)
+					#print("Word scores:")
+					#for key, value in word_scores.items():
+				#		print("    {}:    {}".format(key, value))
+					#raise ValueError(msg)
+				else:
+					collected_terms.append((lemmatized_text, np.mean(these_scores)))
+					term_vector_map[lemmatized_text] = vect
                 
-    term_rank = Counter(collected_terms)
+	s_token_scores = sorted(collected_terms, key=lambda pair : -pair[1])
     
-    for ranked_term in term_rank.most_common(MAX_FEATURES_PER_REVIEW):
-        term = ranked_term[0]
-        yield term, term_vector_map[term]
+	for ranked_term in s_token_scores:
+		term = ranked_term[0]
+		yield term, term_vector_map[term]
         
 def get_attribute_features(title, description, nlp):
     """ <generator> Get text features from a given product's title and description, in the same manner as for
