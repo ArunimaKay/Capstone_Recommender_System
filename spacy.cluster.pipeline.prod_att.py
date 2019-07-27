@@ -166,8 +166,9 @@ def getDF(path):
 
 start = time.time()
 print("Reading Pandas dataframe from reviews_Toys_and_Games.json.gz...")
-df = getDF('./data/reviews_Toys_and_Games_5.json.gz')
-print("...read reviews_Toys_and_Games_5.json.gz (length={}) in {} seconds.".format(len(df), time.time()-start))
+#df = getDF('./data/reviews_Toys_and_Games_5.json.gz')
+df = getDF('./data/reviews_Toys_and_Games.json.gz')
+print("...read reviews_Toys_and_Games.json.gz (length={}) in {} seconds.".format(len(df), time.time()-start))
 
 
 # In[8]:
@@ -177,7 +178,8 @@ print("...read reviews_Toys_and_Games_5.json.gz (length={}) in {} seconds.".form
 print("Loading related metadata dataset:")
 print()
 # file = 'metadata.json.gz'
-file = './data/meta_Toys_and_Games.json.gz'
+#file = './data/meta_Toys_and_Games.json.gz'
+file = './data/meta_sorted_combined_Toys.json.gz'
 start = time.time()
 md = getDF(file)
 print('Total time taken for loading the metadata dataset: {} minutes.'.format(np.round((time.time() - start)/60),2))
@@ -197,9 +199,9 @@ md.isnull().sum()
 test_str = "Plan Toy Oval Xylophone is colorful and is an enjoyable way to stimulate children's natural sense of harmony and rhythm. This solid wood xylophone plays melodic, pleasant notes. Children will experiment with rhythm and note combinations to create their own songs. A wonderful introduction to music from any preschooler"
 doc = nlp(test_str)
 for sent in doc.sents:
-    for chunk in sent.noun_chunks:
-        print("**** Noun chunk: {} ****".format(chunk.text))
-        for token in chunk:
+    for token in sent:
+        print("**** Token: {} ****".format(token.text))
+        for token in [token]:
             print("text:{}, lemma_:{}, pos_:{}, tag_:{}, dep_:{}, shape_:{}, is_alpha:{}, is_stop:{}, norm_:{}".format(token.text, token.lemma_, token.pos_, token.tag_, token.dep_,
                 token.shape_, token.is_alpha, token.is_stop, token.norm_))
             if not english_dict.check(token.norm_):
@@ -269,7 +271,7 @@ print("\ngood_products_by_reviews({}):\n".format(len(good_products_by_review)), 
 
 
 
-product_buildset = pd.read_csv('./data/cluster_build_sets.csv', names=['asin','build_set'])
+product_buildset = pd.read_csv('./data/cluster_build_sets.union.csv', names=['asin','build_set'])
 print("\nproduct_buildset({}):\n".format(len(product_buildset)), product_buildset[:5])
 
 build_set_filter = product_buildset['build_set']==int(build_set)
@@ -308,9 +310,8 @@ print("\nmd_merged({}):\n".format(len(md_merged)), md_merged[:5])
 # In[15]:
 
 
-vectors_filepath = './data/vectors_each.{}.pytab'.format(build_set)
-metadata_filepath = './data/metadata_each.{}.tsv'.format(build_set)
-product_review_features_filepath = './data/product_features.{}.csv'.format(build_set)
+vectors_filepath = './data/vectors_each.prod_att.{}.pytab'.format(build_set)
+metadata_filepath = './data/metadata_each.prod_att.{}.tsv'.format(build_set)
 product_attribute_features_filepath = './data/product_attribute_features.{}.csv'.format(build_set)
 
 
@@ -352,38 +353,38 @@ MERGE_TOKENS = ["\'s", "\'t"]
 debug = False
 
 def get_word_scores(text_input, doc):
-	if debug:
-		print("Getting word scores for text:", text_input)
-	tokenlist = [token for token in doc if token.norm_.lower() not in stopWords]
-	wordlist = [token.norm_.lower() for token in tokenlist]
-	wordfreq = []
-	wordset = set(wordlist)
-	for word in wordset:
-	    wordfreq.append((word, np.log(wordlist.count(word)/len(wordlist))))
+    if debug:
+        print("Getting word scores for text:", text_input)
+    tokenlist = [token for token in doc if token.norm_.lower() not in stopWords]
+    wordlist = [token.norm_.lower() for token in tokenlist]
+    wordfreq = []
+    wordset = set(wordlist)
+    for word in wordset:
+        wordfreq.append((word, np.log(wordlist.count(word)/len(wordlist))))
     
-	s_word_freq = sorted(wordfreq, key=lambda pair : -pair[1])
+    s_word_freq = sorted(wordfreq, key=lambda pair : -pair[1])
 
-	term_freq_dict = dict(zip(wordset,wordfreq))
-	
-	if debug:
-		print("Sorted word frequency: ")
-		for pair in s_word_freq:
-			print(pair)
+    term_freq_dict = dict(zip(wordset,wordfreq))
+    
+    if debug:
+        print("Sorted word frequency: ")
+        for pair in s_word_freq:
+            print(pair)
 
-	word_scores = {}
+    word_scores = {}
 
-	seen_tokens = set()
+    seen_tokens = set()
 
-	for token in doc:
-	    if token not in stopWords:
-	        lower_norm = token.norm_.lower()
-	        tf_pair = term_freq_dict.get(lower_norm)
-	        if (tf_pair is not None) and (lower_norm not in seen_tokens):
-	            tf = tf_pair[1]
-	            word_scores[lower_norm]=tf-token.prob
-	            seen_tokens.add(lower_norm)
+    for token in doc:
+        if token not in stopWords:
+            lower_norm = token.norm_.lower()
+            tf_pair = term_freq_dict.get(lower_norm)
+            if (tf_pair is not None) and (lower_norm not in seen_tokens):
+                tf = tf_pair[1]
+                word_scores[lower_norm]=tf-token.prob
+                seen_tokens.add(lower_norm)
 
-	return word_scores
+    return word_scores
 
 
 def merge_possible(prev_text, curr_text):
@@ -409,7 +410,7 @@ def preprocess_doc(doc):
     for token_ind in range(len(doc)):
         
         # The following is necessary because retokenization after merges shortens the list of tokens
-        if token_ind == len(doc):
+        if token_ind >= len(doc):
             break
         
         token = doc[token_ind]
@@ -449,15 +450,14 @@ def check_embedded_punctuation(input_str):
     return False
         
 
-def get_lemmatized_chunk(chunk):
+def get_lemmatized_token(token):
     """ Filter a noun chunk to exclude IGNORED_LEMMAS and return the remaining text and a computed word vector. """
     processed_text = []
     vector = np.zeros(300)
     stop_count = 0
     non_stop_count = 0
-    doc = chunk
-    for token in doc:
-        if (token.lemma_ not in IGNORED_LEMMAS) and (token.pos_ not in IGNORED_POS):            
+    for token in [token]:
+        if (token.lemma_ not in IGNORED_LEMMAS) and (token.pos_ not in IGNORED_POS) and token.text.isalpha():            
             this_text = token.text.strip()
             
             # check if this token contains 2 or more sequential punctuation characters
@@ -484,73 +484,74 @@ def get_lemmatized_chunk(chunk):
 
 
 def get_vectors(text, nlp):
-	""" <generator> Get embedding word vectors from a given text object. 
-	Args
-	----------
-	text (string)            text to be parsed, tokenized, and vectorized
-	nlp (spaCy pipeline)     pipeline to use for processing the input text
+    """ <generator> Get embedding word vectors from a given text object. 
+    Args
+    ----------
+    text (string)            text to be parsed, tokenized, and vectorized
+    nlp (spaCy pipeline)     pipeline to use for processing the input text
     
-	Generates:
-	----------
-	processed text (string) 
-	phrase vector (numpy.ndarray)
-	"""          
-	# first, strip out the stop words and lowercase the words
-	text = ' '.join([word.lower() for word in text.split() if not word in stopWords])
+    Generates:
+    ----------
+    processed text (string) 
+    phrase vector (numpy.ndarray)
+    """          
+    # first, strip out the stop words and lowercase the words
+    text = ' '.join([word.lower() for word in text.split() if not word in stopWords])
     
-	doc = nlp(text)
+    doc = nlp(text)
 
-	# First, preprocess the text, retokenizing where spaCy has incorrectly split tokens
-	preprocess_doc(doc)
-	# Then, compute TF-IDF-style word scores for each word in the doc
+    # First, preprocess the text, retokenizing where spaCy has incorrectly split tokens
+    preprocess_doc(doc)
+    # Then, compute TF-IDF-style word scores for each word in the doc
 
-	try:
-		word_scores = get_word_scores(text, doc)
-	except ValueError as ve:
-		print("ERROR during word score computation for text:", text)
-		raise ve
+    try:
+        word_scores = get_word_scores(text, doc)
+    except ValueError as ve:
+        print("ERROR during word score computation for text:", text)
+        raise ve
     
 
-	#####
-	# Next, iterate through the sentences and within those the noun chunks.
-	# These noun chunks will be lemmatized and collected as potential features.
-	#####
+    #####
+    # Next, iterate through the sentences and within those the noun chunks.
+    # These noun chunks will be lemmatized and collected as potential features.
+    #####
     
-	collected_terms = []
-	term_vector_map = {}
+    collected_terms = []
+    term_vector_map = {}
     
-	for sent in doc.sents:
-		for chunk in sent.noun_chunks:
-		#yield chunk.text, chunk.vector
-			lemmatized_text, vect = get_lemmatized_chunk(chunk)
-			if len(lemmatized_text) >0:
-				these_scores = []
-				for word in lemmatized_text.split():
-					this_score = word_scores.get(word)
-					if this_score is not None:
-						these_scores.append(this_score)
-					#else:
-					#	print("Token not found in word scores: This should never happen. Full text = '{}'. Lemmatized text = '{}', word = '{}'".format(text, lemmatized_text, word))
-					#	print("Word scores:")
-					#	for key, value in word_scores.items():
-					#		print("    {}:    {}".format(key, value))
-					#	raise ValueError("Token not found in word scores: This should never happen. Full text = '{}'. Lemmatized text = '{}', word = '{}'".format(text, lemmatized_text, word))
+    for sent in doc.sents:
+        #for chunk in sent.noun_chunks:
+        for token in sent:
+        #yield chunk.text, chunk.vector
+            lemmatized_text, vect = get_lemmatized_token(token)
+            if len(lemmatized_text) >0:
+                these_scores = []
+                for word in lemmatized_text.split():
+                    this_score = word_scores.get(word)
+                    if this_score is not None:
+                        these_scores.append(this_score)
+                    #else:
+                    #    print("Token not found in word scores: This should never happen. Full text = '{}'. Lemmatized text = '{}', word = '{}'".format(text, lemmatized_text, word))
+                    #    print("Word scores:")
+                    #    for key, value in word_scores.items():
+                    #        print("    {}:    {}".format(key, value))
+                    #    raise ValueError("Token not found in word scores: This should never happen. Full text = '{}'. Lemmatized text = '{}', word = '{}'".format(text, lemmatized_text, word))
 
-				if len(these_scores) == 0:				
-					msg = "Processed text with no scores (probably all stop words). Full text = '{}', lemmatized text = '{}'".format(text, lemmatized_text)
-					#print("Word scores:")
-					#for key, value in word_scores.items():
-				#		print("    {}:    {}".format(key, value))
-					#raise ValueError(msg)
-				else:
-					collected_terms.append((lemmatized_text, np.mean(these_scores)))
-					term_vector_map[lemmatized_text] = vect
+                if len(these_scores) == 0:                
+                    msg = "Processed text with no scores (probably all stop words). Full text = '{}', lemmatized text = '{}'".format(text, lemmatized_text)
+                    #print("Word scores:")
+                    #for key, value in word_scores.items():
+                #        print("    {}:    {}".format(key, value))
+                    #raise ValueError(msg)
+                else:
+                    collected_terms.append((lemmatized_text, np.mean(these_scores)))
+                    term_vector_map[lemmatized_text] = vect
                 
-	s_token_scores = sorted(collected_terms, key=lambda pair : -pair[1])
+    s_token_scores = sorted(collected_terms, key=lambda pair : -pair[1])
     
-	for ranked_term in s_token_scores:
-		term = ranked_term[0]
-		yield term, term_vector_map[term]
+    for ranked_term in s_token_scores[:MAX_FEATURES_PER_REVIEW]:
+        term = ranked_term[0]
+        yield term, term_vector_map[term]
         
 def get_attribute_features(title, description, nlp):
     """ <generator> Get text features from a given product's title and description, in the same manner as for
@@ -589,9 +590,9 @@ test_term_vector_map = {}
 
 doc = nlp(test_str)
 for sent in doc.sents:
-    for chunk in sent.noun_chunks:
+    for token in sent:
         #yield chunk.text, chunk.vector
-        lemmatized_text, vect = get_lemmatized_chunk(chunk)
+        lemmatized_text, vect = get_lemmatized_token(token)
         if len(lemmatized_text) >0:
             test_collected_terms.append(lemmatized_text)
             test_term_vector_map[lemmatized_text] = vect
@@ -625,72 +626,72 @@ def write_product_attr_features(out_f, product, rating, processed_text, concept_
 if non_clustered_product_features:
 # Collect non-clustered features from each product's title and description
 
-	remove_file(product_attribute_features_filepath)
+    remove_file(product_attribute_features_filepath)
 
-	total_start = time.time()
+    total_start = time.time()
 
-	product_atts = md_merged
+    product_atts = md_merged
 
-	print("There are {} total products with at least 5 reviews each".format(len(product_atts)))
+    print("There are {} total products with at least 5 reviews each".format(len(product_atts)))
 
-	start_ind = 0
-	iteration_size = 1000
-	iter_limit = len(product_atts)
-	features_count = 0
+    start_ind = 0
+    iteration_size = 1000
+    iter_limit = len(product_atts)
+    features_count = 0
 
-	print("\nCollecting word concept vectors for {} product titles & reviews...".format(iter_limit))
-	display_local_time()
+    print("\nCollecting word concept vectors for {} product titles & reviews...".format(iter_limit))
+    display_local_time()
 
-	with open(product_attribute_features_filepath, mode="a") as out_f:
+    with open(product_attribute_features_filepath, mode="a") as out_f:
     
-	    for iteration in range(int(iter_limit/iteration_size)+1):
+        for iteration in range(int(iter_limit/iteration_size)+1):
 
-	        print("Starting iteration over products {}-{}...".format(start_ind + iteration*iteration_size,
-	                                                                start_ind + (iteration+1)*iteration_size-1))
+            print("Starting iteration over products {}-{}...".format(start_ind + iteration*iteration_size,
+                                                                    start_ind + (iteration+1)*iteration_size-1))
         
-	        iter_start_time = time.time()
+            iter_start_time = time.time()
         
-	        processed_records = iteration*iteration_size
+            processed_records = iteration*iteration_size
         
-	        this_iteration_size = min(iteration_size, len(product_atts)-processed_records)
+            this_iteration_size = min(iteration_size, len(product_atts)-processed_records)
         
-	        for iter_ind in range(this_iteration_size):
+            for iter_ind in range(this_iteration_size):
     
-	            product_ind = start_ind + iteration*iteration_size + iter_ind
+                product_ind = start_ind + iteration*iteration_size + iter_ind
         
-	            product = product_atts['asin'].iloc[product_ind]
-	            rating = product_atts['overall'].iloc[product_ind]
-	            title = product_atts['title'].iloc[product_ind]
-	            description = product_atts['description'].iloc[product_ind]
+                product = product_atts['asin'].iloc[product_ind]
+                rating = product_atts['overall'].iloc[product_ind]
+                title = product_atts['title'].iloc[product_ind]
+                description = product_atts['description'].iloc[product_ind]
             
-	            attr_text = ' '.join([str(title)+". ", str(description)])
+                attr_text = ' '.join([str(title)+". ", str(description)])
         
-	            if debug and (iteration == 0) and (iter_ind < 5):
-	                print("product: {}, rating: {}, title: '{}', description: '{}'".format(product, rating, title, description))
+                if debug and (iteration == 0) and (iter_ind < 5):
+                    print("product: {}, rating: {}, title: '{}', description: '{}'".format(product, rating, title, description))
     
-	            #print(review)
-	            for processed_text, concept_vec in get_vectors(attr_text, nlp):
+                #print(review)
+                for processed_text, concept_vec in get_vectors(attr_text, nlp):
             
-	                # If there were no non-stop words in a given noun chunk, we will not add it to the vectors and metadata
-	                if (len(processed_text)>0):
+                    # If there were no non-stop words in a given noun chunk, we will not add it to the vectors and metadata
+                    if (len(processed_text)>0):
 
-	                    write_product_attr_features(out_f, product, rating, processed_text, concept_vec)
-	                    features_count += 1           
+                        write_product_attr_features(out_f, product, rating, processed_text, concept_vec)
+                        features_count += 1           
 
-	        print("...completed processing {} products in {} seconds.".format(this_iteration_size, time.time()-iter_start_time))
+            print("...completed processing {} products in {} seconds.".format(this_iteration_size, time.time()-iter_start_time))
     
-	print("...processed {} products in {} seconds, producing {} total product_features.".format(iteration*iteration_size+this_iteration_size, time.time()-total_start, features_count))
+    print("...processed {} products in {} seconds, producing {} total product_features.".format(iteration*iteration_size+this_iteration_size, time.time()-total_start, features_count))
 
 
 # In[25]:
 
 
-	product_attribute_features_filepath = "./data/product_attribute_features.0.csv"
-	with open(product_attribute_features_filepath, mode="r") as in_f:
-	    product_attr_features = pd.read_csv(in_f, names=['asin','overall','feature'])
-	    print("File {} contains {} total product features.".format(product_attribute_features_filepath, 
-	                                                               len(product_attr_features)))
-	    print(product_attr_features[:20])
+    product_attribute_features_filepath = "./data/product_attribute_features.0.csv"
+    with open(product_attribute_features_filepath, mode="r") as in_f:
+        product_attr_features = pd.read_csv(in_f, names=['asin','overall','feature'])
+        print("File {} contains {} total product features.".format(product_attribute_features_filepath, 
+                                                                   len(product_attr_features)))
+        print(product_attr_features[:20])
     
 
 
@@ -700,109 +701,115 @@ if review_vectors:
 # The following boolean controls whether the index list and the output np matrix are build by the vectorizing process.
 # This can be used if appropriate for small datasets, but the repeated stacking of numpy arrays is expensive.
 # Otherwise, these item are already written out to the files in metadata_filepath and vectors_filepath, using PyTables.
-	build_vects = False
+    build_vects = False
 
-	remove_file(vectors_filepath)
-	remove_file(metadata_filepath)
+    remove_file(vectors_filepath)
+    remove_file(metadata_filepath)
 
-	# Create a sample vector, to determine the word vect dimension of a single entry
-	sample_vect = [vec for vec in get_vectors("example", nlp)][0][1]
-	vect_dim = sample_vect.shape
-	print("Sample vect[{}]".format(vect_dim))
-	index = []
-	output = None
-	vectors_count = 0
+    # Create a sample vector, to determine the word vect dimension of a single entry
+    sample_vect = [vec for vec in get_vectors("example", nlp)][0][1]
+    vect_dim = sample_vect.shape
+    print("Sample vect[{}]".format(vect_dim))
+    index = []
+    output = None
+    vectors_count = 0
 
-	total_start = time.time()
+    total_start = time.time()
 
-	#good_reviews = df[df['reviewerID'].isin(good_reviewers['reviewerID'])][df['asin'].isin(good_products['asin'])]
-	#good_reviews = df[df['asin'].isin(good_products['asin']) & df['asin'].isin(products_in_buildset)]
-	good_reviews = df_merged
+    #good_reviews = df[df['reviewerID'].isin(good_reviewers['reviewerID'])][df['asin'].isin(good_products['asin'])]
+    #good_reviews = df[df['asin'].isin(good_products['asin']) & df['asin'].isin(products_in_buildset)]
+    #good_reviews = df_merged
+    product_atts = md_merged
 
-	#print("There are {} total reviews for reviewers with at least 5 reviews each and products with at least 5 reviews each".format(len(good_reviews)))
-	print("There are {} total reviews for products with at least 5 reviews each".format(len(good_reviews)))
+    #print("There are {} total reviews for reviewers with at least 5 reviews each and products with at least 5 reviews each".format(len(good_reviews)))
+    print("There are {} total reviews in build set for products with at least 5 reviews each".format(len(product_atts)))
 
-	start_ind = 0
-	iteration_size = 1000
-	iter_limit = len(good_reviews)
-	#iter_limit = 10000
+    start_ind = 0
+    iteration_size = 1000
+    iter_limit = len(product_atts)
+    #iter_limit = 10000
 
 
-	print("\nCollecting word concept vectors for {} product/rating/reviews...".format(iter_limit))
-	display_local_time()
+    print("\nCollecting word concept vectors for {} product title+description...".format(iter_limit))
+    display_local_time()
 
-	with open_file(vectors_filepath, mode="w", title="Word Vectors") as out_v:
+    with open_file(vectors_filepath, mode="w", title="Word Vectors") as out_v:
     
-	    atom = tables.Float32Atom(vect_dim[0])
-	    shape = (0,)
-	    filters = tables.Filters(complevel=5, complib='zlib')
-	    word_vect = out_v.create_earray(out_v.root, 'vector', atom, shape, filters=filters)
+        atom = tables.Float32Atom(vect_dim[0])
+        shape = (0,)
+        filters = tables.Filters(complevel=5, complib='zlib')
+        word_vect = out_v.create_earray(out_v.root, 'vector', atom, shape, filters=filters)
 
-	with open(metadata_filepath, 'a') as out_m, open_file(vectors_filepath, mode="a", title="Word Vectors") as out_v:
+    with open(metadata_filepath, 'a') as out_m, open_file(vectors_filepath, mode="a", title="Word Vectors") as out_v:
     
-	    print("Word Vectors: ", out_v)
+        print("Word Vectors: ", out_v)
     
-	    for iteration in range(int(iter_limit/iteration_size)+1):
+        for iteration in range(int(iter_limit/iteration_size)+1):
 
-	        print("Starting iteration over reviews {}-{}...".format(start_ind + iteration*iteration_size,
-	                                                                start_ind + (iteration+1)*iteration_size-1))
+            print("Starting iteration over reviews {}-{}...".format(start_ind + iteration*iteration_size,
+                                                                    start_ind + (iteration+1)*iteration_size-1))
         
-	        iter_start_time = time.time()
+            iter_start_time = time.time()
         
-	        processed_records = iteration*iteration_size
+            processed_records = iteration*iteration_size
         
-	        this_iteration_size = min(iteration_size, len(good_reviews)-processed_records)
+            this_iteration_size = min(iteration_size, len(product_atts)-processed_records)
         
-	        for iter_ind in range(this_iteration_size):
+            for iter_ind in range(this_iteration_size):
     
-	            review_ind = start_ind + iteration*iteration_size + iter_ind
-        
-	            #reviewer = good_reviews['reviewerID'].iloc[review_ind]
-	            product = good_reviews['asin'].iloc[review_ind]
-	            rating = good_reviews['overall'].iloc[review_ind]
-	            review = good_reviews['reviewText'].iloc[review_ind]
-    
-	            #print(review)
-	            for processed_text, concept_vec in get_vectors(review, nlp):
+                product_ind = start_ind + iteration*iteration_size + iter_ind
+
+                product = product_atts['asin'].iloc[product_ind]
+                rating = product_atts['overall'].iloc[product_ind]
+                title = product_atts['title'].iloc[product_ind]
+                description = product_atts['description'].iloc[product_ind]
+
+                attr_text = ' '.join([str(title)+". ", str(description)])
+
+                if debug and (iteration == 0) and (iter_ind < 5):
+                    print("product: {}, rating: {}, title: '{}', description: '{}'".format(product, rating, title, description)) 
+
+                #print(review)
+                for processed_text, concept_vec in get_vectors(attr_text, nlp):
             
-	                # If there were no non-stop words in a given noun chunk, we will not add it to the vectors and metadata
-	                if (len(processed_text)>0):
+                    # If there were no non-stop words in a given noun chunk, we will not add it to the vectors and metadata
+                    if (len(processed_text)>0):
 
-	                    write_vectors(out_v.root.vector, out_m, product, rating, processed_text, concept_vec)
-	                    vectors_count += 1
+                        write_vectors(out_v.root.vector, out_m, product, rating, processed_text, concept_vec)
+                        vectors_count += 1
                     
-	                    # If this run is not just writing to disk, but should also build the vectors
-	                    if build_vects:                    
-	                        # Append data to a list and a numpy array
-	                        index.append([product, rating, processed_text])
+                        # If this run is not just writing to disk, but should also build the vectors
+                        if build_vects:                    
+                            # Append data to a list and a numpy array
+                            index.append([product, rating, processed_text])
         
-	                        if output is None:
-	                            # Create an np.array with the first row as the retrieved word vector
-	                            output = np.array([concept_vec])
-	                        else:
-	                            # Append the next vector to the end of the vectors array
-	                            output = np.append(output, [concept_vec], axis=0)            
+                            if output is None:
+                                # Create an np.array with the first row as the retrieved word vector
+                                output = np.array([concept_vec])
+                            else:
+                                # Append the next vector to the end of the vectors array
+                                output = np.append(output, [concept_vec], axis=0)            
 
-	        print("...completed processing {} reviews in {} seconds.".format(this_iteration_size, time.time()-iter_start_time))
+            print("...completed processing {} reviews in {} seconds.".format(this_iteration_size, time.time()-iter_start_time))
     
-	print("...processed {} reviews in {} seconds, producing {} word vectors.".format(iteration*iteration_size+this_iteration_size, time.time()-total_start, vectors_count))
+    print("...processed {} reviews in {} seconds, producing {} word vectors.".format(iteration*iteration_size+this_iteration_size, time.time()-total_start, vectors_count))
 
 
 # In[26]:
 
-	phrases = []
-	with open(metadata_filepath, 'r') as in_m:
-	    for line in in_m:
-	        phrase = line.split('\t')[2]
-	        phrases.append(phrase.strip())
-        
-	phrase_count = Counter(phrases)
+    phrases = []
+    with open(metadata_filepath, 'r') as in_m:
+        for line in in_m:
+            phrase = line.split('\t')[2]
+            phrases.append(phrase.strip())
+       
+    phrase_count = Counter(phrases)
 
-	print("Here are the top {} phrases and their counts...".format(MAX_FEATURES_PER_REVIEW))
+    print("Here are the top {} phrases and their counts...".format(MAX_FEATURES_PER_REVIEW))
 
-	for counted_phrase in phrase_count.most_common(MAX_FEATURES_PER_REVIEW):
-	        phrase = counted_phrase[0]
-	        print(counted_phrase)
+    for counted_phrase in phrase_count.most_common(MAX_FEATURES_PER_REVIEW):
+            phrase = counted_phrase[0]
+            print(counted_phrase)
 
 
 # In[ ]:
@@ -810,29 +817,29 @@ if review_vectors:
 
 # Fit an HDBScan model using the sampled sense vectors
 if clustering:
-	HDBSCAN_METRIC = 'manhattan'
+    HDBSCAN_METRIC = 'manhattan'
 
-	with open_file(vectors_filepath, mode="r", title="Word Vectors") as word_vectors:
+    with open_file(vectors_filepath, mode="r", title="Word Vectors") as word_vectors:
 
-	    print("word_vectors: ", word_vectors)
+        print("word_vectors: ", word_vectors)
     
-	    start = time.time()
-	    print("Creating word clusters from word vectors...")
-	    display_local_time()
-	    hdbscanner = hdbscan.HDBSCAN(min_cluster_size=10, min_samples=5, metric=HDBSCAN_METRIC, gen_min_span_tree=True, core_dist_n_jobs=8, prediction_data=True)
-	    hdbscanner.fit(word_vectors.root.vector)
-	    print("...completed clustering in {} seconds.".format(time.time()-start))
+        start = time.time()
+        print("Creating word clusters from word vectors...")
+        display_local_time()
+        hdbscanner = hdbscan.HDBSCAN(min_cluster_size=10, min_samples=5, metric=HDBSCAN_METRIC, gen_min_span_tree=True, core_dist_n_jobs=8, prediction_data=True)
+        hdbscanner.fit(word_vectors.root.vector)
+        print("...completed clustering in {} seconds.".format(time.time()-start))
 
 
 # In[ ]:
 
 
-	with open_file(vectors_filepath, mode="r", title="Word Vectors") as word_vectors:
-	    vdim = len(word_vectors.root.vector)
-	    print("word-vectors{}: ".format(vdim), word_vectors.root.vector)
-	# Save the HDBScan model with a name indicating the number of word vectors clustered
-	    with open('./data/hdbscanner.{}.pickle'.format(build_set), 'wb') as pickle_file:
-	        pickle.dump(hdbscanner, pickle_file)
+    with open_file(vectors_filepath, mode="r", title="Word Vectors") as word_vectors:
+        vdim = len(word_vectors.root.vector)
+        print("word-vectors{}: ".format(vdim), word_vectors.root.vector)
+    # Save the HDBScan model with a name indicating the number of word vectors clustered
+        with open('./data/hdbscanner.{}.pickle'.format(build_set), 'wb') as pickle_file:
+            pickle.dump(hdbscanner, pickle_file)
 
 
 # In[ ]:
@@ -841,15 +848,15 @@ if clustering:
 # Plot the condensed cluster tree
 
 if plotting:
-	start = time.time()
-	print("Condensing the linkage tree and then plotting...")
-	#hdbscanner.single_linkage_tree_.plot(cmap='viridis', colorbar=True)
-	hdbscanner.condensed_tree_.plot()
-	hdbscanner.condensed_tree_.plot(select_clusters=True, selection_palette=sns.color_palette())
-	print("...plotted condensed tree in {} seconds.".format(time.time()-start))
-	tree = hdbscanner.condensed_tree_
-	print("Found {} clusters".format(len(tree._select_clusters())))
-	matplotlib.pyplot.show()
+    start = time.time()
+    print("Condensing the linkage tree and then plotting...")
+    #hdbscanner.single_linkage_tree_.plot(cmap='viridis', colorbar=True)
+    hdbscanner.condensed_tree_.plot()
+    hdbscanner.condensed_tree_.plot(select_clusters=True, selection_palette=sns.color_palette())
+    print("...plotted condensed tree in {} seconds.".format(time.time()-start))
+    tree = hdbscanner.condensed_tree_
+    print("Found {} clusters".format(len(tree._select_clusters())))
+    matplotlib.pyplot.show()
 
 
 # In[ ]:
@@ -920,58 +927,58 @@ if labeling:
 #for ind, entry in enumerate(index):
 #    print("cluster: {}, ind: {}, entry: {}".format(hdbscanner.labels_[ind], ind, entry))
 
-	start = time.time()
-	print("Selecting clusters in tree...")
-	clusters = tree._select_clusters()
-	print("...finished selecting clusters in {} seconds.".format(time.time()-start))
+    start = time.time()
+    print("Selecting clusters in tree...")
+    clusters = tree._select_clusters()
+    print("...finished selecting clusters in {} seconds.".format(time.time()-start))
 
-	initial_cluster_count = len(clusters)
-	print("Found {} clusters".format(initial_cluster_count))
+    initial_cluster_count = len(clusters)
+    print("Found {} clusters".format(initial_cluster_count))
 
-	index = []
-	all_points = []
-	labels = []
+    index = []
+    all_points = []
+    labels = []
 
 # iterate through the input metadata once, to collect all words and the word labels for the sampled points
-	with open(metadata_filepath, 'r') as in_m:
-		mdim = None
-		curr_line = 0
-		for line in in_m:
-			if mdim is None:
-				mdim = line.count('\t')+1
-				print('File {} contains index entries of of dimension {}'.format(metadata_filepath, vdim))
-			if line.endswith('\n'):
-				line = line[:-1]
-			all_points.append(line.split('\t'))
-			sample_this_row = True
-			if sample_this_row:
-				meta_line = line.split('\t')
-				index.append(meta_line)
-				if labels_words:
-					labels.append(meta_line[2])
-			curr_line += 1
+    with open(metadata_filepath, 'r') as in_m:
+        mdim = None
+        curr_line = 0
+        for line in in_m:
+            if mdim is None:
+                mdim = line.count('\t')+1
+                print('File {} contains index entries of of dimension {}'.format(metadata_filepath, vdim))
+            if line.endswith('\n'):
+                line = line[:-1]
+            all_points.append(line.split('\t'))
+            sample_this_row = True
+            if sample_this_row:
+                meta_line = line.split('\t')
+                index.append(meta_line)
+                if labels_words:
+                    labels.append(meta_line[2])
+            curr_line += 1
 
-	print("All Points({}, {}): {}".format(len(all_points), len(all_points[0]), all_points[:5]))
+    print("All Points({}, {}): {}".format(len(all_points), len(all_points[0]), all_points[:5]))
 
-	# then, iterate through the input metadata again, to apply the cluster labels, if labels_words is False
-	with open(metadata_filepath, 'r') as in_m:
-		mdim = None
-		curr_line = 0
-		curr_sample = 0
+    # then, iterate through the input metadata again, to apply the cluster labels, if labels_words is False
+    with open(metadata_filepath, 'r') as in_m:
+        mdim = None
+        curr_line = 0
+        curr_sample = 0
 
-		for line in in_m:
-			if mdim is None:
-				mdim = line.count('\t')+1
-				print('File {} contains {} index entries.'.format(metadata_filepath, vdim))
-			if line.endswith('\n'):
-				line = line[:-1]
-			sample_this_row = True
-			if sample_this_row:
-				index.append(line.split('\t'))
-				if not labels_words:
-					labels.append("-")
-				curr_sample += 1
-			curr_line += 1
+        for line in in_m:
+            if mdim is None:
+                mdim = line.count('\t')+1
+                print('File {} contains {} index entries.'.format(metadata_filepath, vdim))
+            if line.endswith('\n'):
+                line = line[:-1]
+            sample_this_row = True
+            if sample_this_row:
+                index.append(line.split('\t'))
+                if not labels_words:
+                    labels.append("-")
+                curr_sample += 1
+            curr_line += 1
 
 
 # 
@@ -979,82 +986,82 @@ if labeling:
 # In[27]:
 
 
-	print(hdbscanner.exemplars_[:10])
+    print(hdbscanner.exemplars_[:10])
 
 
 # In[28]:
 
 
-	print(nlp.vocab.vectors.most_similar(hdbscanner.exemplars_[1]))
+    print(nlp.vocab.vectors.most_similar(hdbscanner.exemplars_[1]))
 
 
 # In[29]:
 
 
-	selected_clusters = []
-	cluster_map = {}
-	cluster_exemplar_map = {}
+    selected_clusters = []
+    cluster_map = {}
+    cluster_exemplar_map = {}
 
-	for i, c in enumerate(clusters):
-	    c_exemplars = get_exemplars(c, tree)
+    for i, c in enumerate(clusters):
+        c_exemplars = get_exemplars(c, tree)
 
-	    point_label = None
-	    cluster_exemplars = set()
-	    for ind, ex_ind in enumerate(c_exemplars):
-	        #print("Exemplar -- {} : {}".format(index[ex_ind][0], index[ex_ind][2]))
-	        
-	        candidate_exemplar = index[ex_ind][2]
+        point_label = None
+        cluster_exemplars = set()
+        for ind, ex_ind in enumerate(c_exemplars):
+            #print("Exemplar -- {} : {}".format(index[ex_ind][0], index[ex_ind][2]))
+            
+            candidate_exemplar = index[ex_ind][2]
         
-	        cluster_exemplars.add(index[ex_ind][2])
-	        if point_label is None:
-	            point_label = index[ex_ind][2]
+            cluster_exemplars.add(index[ex_ind][2])
+            if point_label is None:
+                point_label = index[ex_ind][2]
     
-	    members = set()
-	    for label_ind, label in np.ndenumerate(hdbscanner.labels_):
-	        if label == i:
-	            members.add(index[label_ind[0]][2])
-	            if not labels_words:
-	                labels[label_ind[0]] = point_label
+        members = set()
+        for label_ind, label in np.ndenumerate(hdbscanner.labels_):
+            if label == i:
+                members.add(index[label_ind[0]][2])
+                if not labels_words:
+                    labels[label_ind[0]] = point_label
             
             #print("Member: {} : {}".format(index[label_ind[0]][0], index[label_ind[0]][2]))
     
-	    exemplars_len = float(len(cluster_exemplars))
-	    members_len = float(len(members))
+        exemplars_len = float(len(cluster_exemplars))
+        members_len = float(len(members))
     
-	    # Look for clusters where the members outnumber the exemplars by 2 times
-	    if ((exemplars_len>0) and (len(members)>(2.0*exemplars_len))):
+        # Look for clusters where the members outnumber the exemplars by 2 times
+        if ((exemplars_len>0) and (len(members)>(2.0*exemplars_len))):
     
-	        example_cluster_exemplars = "|".join(cluster_exemplars)
-	        example_cluster_members = "|".join(members)
+            example_cluster_exemplars = "|".join(cluster_exemplars)
+            example_cluster_members = "|".join(members)
         
-	        selected_clusters.append((example_cluster_exemplars, example_cluster_members))
-	        # with the index of the cluster (treated as label by hdbscanner) as a key, store the index into selected_clusters
-	        cluster_map[str(i)] = len(selected_clusters)-1
-	        cluster_exemplar_map[str(i)] = cluster_exemplars
+            selected_clusters.append((example_cluster_exemplars, example_cluster_members))
+            # with the index of the cluster (treated as label by hdbscanner) as a key, store the index into selected_clusters
+            cluster_map[str(i)] = len(selected_clusters)-1
+            cluster_exemplar_map[str(i)] = cluster_exemplars
 
-	selected_cluster_count = len(selected_clusters)
-	if (selected_cluster_count>0):
-	    with open("./data/clusters.{}.txt".format(build_set), "w") as cluster_report:
-	        print("\nFound {} clusters ({}% of initially collected):".
-	          format(len(selected_clusters), 100.0*float(selected_cluster_count)/float(initial_cluster_count)), file=cluster_report)
-	        for example in selected_clusters:
-	            print("\nExemplars: {}".format(example[0]), file=cluster_report)
-	            print("Members: {}".format(example[1]), file=cluster_report)
+    selected_cluster_count = len(selected_clusters)
+    if (selected_cluster_count>0):
+        with open("./data/clusters.{}.txt".format(build_set), "w") as cluster_report:
+            print("\nFound {} clusters ({}% of initially collected):".
+              format(len(selected_clusters), 100.0*float(selected_cluster_count)/float(initial_cluster_count)), file=cluster_report)
+            for example in selected_clusters:
+                print("\nExemplars: {}".format(example[0]), file=cluster_report)
+                print("Members: {}".format(example[1]), file=cluster_report)
 
-	with open(path_for_tf_metadata+'/metadata.{}.tsv'.format(build_set), 'w') as out_tf_meta:
-	    for label in labels:
-	        out_tf_meta.write(str(label)+'\n')
+    with open(path_for_tf_metadata+'/metadata.{}.tsv'.format(build_set), 'w') as out_tf_meta:
+        for label in labels:
+            out_tf_meta.write(str(label)+'\n')
                                                                     
-	noise_count = sum([1 for label in hdbscanner.labels_ if label == -1])
-	print("\nThere were {} words that were considered noise.".format(noise_count))
+    noise_count = sum([1 for label in hdbscanner.labels_ if label == -1])
+    print("\nThere were {} words that were considered noise.".format(noise_count))
 
-	np.save('./data/selected_clusters.{}.npy'.format(build_set), selected_clusters)
+    np.save('./data/selected_clusters.{}.npy'.format(build_set), selected_clusters)
 
 
 # In[30]:
 
 
-	print(hdbscanner.labels_[:10])
+    print(hdbscanner.labels_[:10])
 
 
 # In[31]:
@@ -1102,51 +1109,51 @@ def get_score(exem_tuple):
     return -exem_tuple[1]
 
 if text_features:
-	with open(product_review_features_filepath, 'w') as prod_features_file:
+    with open(product_attribute_features_filepath, 'w') as prod_features_file:
     
-	    # create an empty dict in which to hold phrases we've already seen associated with a product
-	    visited_product_phrases = {}
+        # create an empty dict in which to hold phrases we've already seen associated with a product
+        visited_product_phrases = {}
     
-	    for ind, cluster_ind in enumerate(hdbscanner.labels_):
-	        # A non-negative hdbscanner label for a point indicates assignment to a cluster
-	        if cluster_ind >= 0:
-	            cluster_detail_ind = cluster_map.get(str(cluster_ind))
-	            if cluster_detail_ind is None:
-	                continue
-	            else:
-	                pass
-	                #print("Found detail for cluster {} : {}".format(cluster_ind, cluster_detail_ind))
-	            cluster_detail = selected_clusters[cluster_detail_ind]
-	            product = index[ind][0]
-	            rating = index[ind][1]
-	            phrase = index[ind][2]
+        for ind, cluster_ind in enumerate(hdbscanner.labels_):
+            # A non-negative hdbscanner label for a point indicates assignment to a cluster
+            if cluster_ind >= 0:
+                cluster_detail_ind = cluster_map.get(str(cluster_ind))
+                if cluster_detail_ind is None:
+                    continue
+                else:
+                    pass
+                    #print("Found detail for cluster {} : {}".format(cluster_ind, cluster_detail_ind))
+                cluster_detail = selected_clusters[cluster_detail_ind]
+                product = index[ind][0]
+                rating = index[ind][1]
+                phrase = index[ind][2]
             
-	            # see if we've already seen this phrase in this product, if so skip it
-	            already_visited_list = visited_product_phrases.get(product)
-	            if already_visited_list is None:
-	                visited_product_phrases[product]=[phrase]
-	            else:
-	                if phrase in already_visited_list:
-	                    continue
-	                else:
-	                    already_visited_list.append(phrase)
-	                    visited_product_phrases[product] = already_visited_list
+                # see if we've already seen this phrase in this product, if so skip it
+                already_visited_list = visited_product_phrases.get(product)
+                if already_visited_list is None:
+                    visited_product_phrases[product]=[phrase]
+                else:
+                    if phrase in already_visited_list:
+                        continue
+                    else:
+                        already_visited_list.append(phrase)
+                        visited_product_phrases[product] = already_visited_list
                     
-	            phrase_doc = nlp(phrase)
+                phrase_doc = nlp(phrase)
 
-	            exemplars = cluster_detail[0]
-	            scored_exemplars = []
-	            for exemp in exemplars.split("|"):
+                exemplars = cluster_detail[0]
+                scored_exemplars = []
+                for exemp in exemplars.split("|"):
                 
 
                 
-	                exemp_doc = nlp(exemp)
-	                ex_similarity = phrase_doc.similarity(exemp_doc)
-	                scored_exemplars.append((exemp, ex_similarity))
-	            scored_exemplars = sorted(scored_exemplars, key=get_score)
+                    exemp_doc = nlp(exemp)
+                    ex_similarity = phrase_doc.similarity(exemp_doc)
+                    scored_exemplars.append((exemp, ex_similarity))
+                scored_exemplars = sorted(scored_exemplars, key=get_score)
         
             #print("product:{}, rating:{}, phrase:'{}', cluster:{}, exemplars:{}".format(product, rating, phrase, cluster_ind, scored_exemplars))
-	            print("{}, {}, {}, '{}'".format(product, rating, cluster_ind, scored_exemplars[0][0], scored_exemplars), file=prod_features_file)
+                print("{}, {}, {}, '{}'".format(product, rating, cluster_ind, scored_exemplars[0][0], scored_exemplars), file=prod_features_file)
 
 
 # In[62]:
@@ -1168,27 +1175,27 @@ if text_features:
 # Prepare for a tensorboard visualization
 
 if tensor_vis:
-	import tensorflow as tf
+    import tensorflow as tf
 
-	output_init = tf.constant_initializer(output)
+    output_init = tf.constant_initializer(output)
 
-	print('fitting shape:')
-	tf.reset_default_graph()
-	with tf.Session() :
-	    embedding_var = tf.get_variable('embedding_var', shape=[len(output), len(output[0])], initializer=tf.constant_initializer(output), dtype=tf.float32)
-	    embedding_var.initializer.run()
-	    print(embedding_var.eval())
+    print('fitting shape:')
+    tf.reset_default_graph()
+    with tf.Session() :
+        embedding_var = tf.get_variable('embedding_var', shape=[len(output), len(output[0])], initializer=tf.constant_initializer(output), dtype=tf.float32)
+        embedding_var.initializer.run()
+        print(embedding_var.eval())
     
-	sess = tf.Session()
+    sess = tf.Session()
 
-	sess.run(embedding_var.initializer)
+    sess.run(embedding_var.initializer)
 
 
-	with open(path_for_tf_ckpt,'w') as f:
-	    f.write("Index\tLabel\n")
-	    for ind,label_line in enumerate(index):
-	        label = '{}:{}:{}'.format(label_line[0], label_line[1], label_line[2])
-	        f.write("%d\t%s\n" % (ind,label))
+    with open(path_for_tf_ckpt,'w') as f:
+        f.write("Index\tLabel\n")
+        for ind,label_line in enumerate(index):
+            label = '{}:{}:{}'.format(label_line[0], label_line[1], label_line[2])
+            f.write("%d\t%s\n" % (ind,label))
 
 
 # In[20]:
@@ -1198,29 +1205,29 @@ if tensor_vis:
 # To view it, run command "tensorboard --port=6006 --logdir=./logdir" on your computer and then 
 # open http://localhost:6006 in a browser.
 
-	from tensorflow.contrib.tensorboard.plugins import projector
+    from tensorflow.contrib.tensorboard.plugins import projector
 
-	with tf.Session() as sess:
-	    tf.global_variables_initializer().run()
-	    # Create summary writer.
-	    writer = tf.summary.FileWriter(path_for_tf_metadata, sess.graph)
-	    # Initialize embedding_var
-	    sess.run(embedding_var.initializer)
-	    # Create Projector config
-	    config = projector.ProjectorConfig()
-	    # Add embedding visualizer
-	    embedding = config.embeddings.add()
-	    # Attache the name 'embedding'
-	    embedding.tensor_name = embedding_var.name
-	    # Metafile which is described later
-	    embedding.metadata_path = 'metadata.tsv'
-	    # Add writer and config to Projector
-	    projector.visualize_embeddings(writer, config)
-	    # Save the model
-	    saver_embed = tf.train.Saver([embedding_var])
-	    saver_embed.save(sess, path_for_tf_ckpt, 1)
+    with tf.Session() as sess:
+        tf.global_variables_initializer().run()
+        # Create summary writer.
+        writer = tf.summary.FileWriter(path_for_tf_metadata, sess.graph)
+        # Initialize embedding_var
+        sess.run(embedding_var.initializer)
+        # Create Projector config
+        config = projector.ProjectorConfig()
+        # Add embedding visualizer
+        embedding = config.embeddings.add()
+        # Attache the name 'embedding'
+        embedding.tensor_name = embedding_var.name
+        # Metafile which is described later
+        embedding.metadata_path = 'metadata.tsv'
+        # Add writer and config to Projector
+        projector.visualize_embeddings(writer, config)
+        # Save the model
+        saver_embed = tf.train.Saver([embedding_var])
+        saver_embed.save(sess, path_for_tf_ckpt, 1)
 
-	writer.close()
+    writer.close()
 
 
 # In[21]:
