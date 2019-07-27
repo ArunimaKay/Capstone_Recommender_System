@@ -177,7 +177,8 @@ print("...read reviews_Toys_and_Games_5.json.gz (length={}) in {} seconds.".form
 print("Loading related metadata dataset:")
 print()
 # file = 'metadata.json.gz'
-file = './data/meta_Toys_and_Games.json.gz'
+#file = './data/meta_Toys_and_Games.json.gz'
+file = './data/meta_sorted_combined_Toys.json.gz'
 start = time.time()
 md = getDF(file)
 print('Total time taken for loading the metadata dataset: {} minutes.'.format(np.round((time.time() - start)/60),2))
@@ -269,7 +270,7 @@ print("\ngood_products_by_reviews({}):\n".format(len(good_products_by_review)), 
 
 
 
-product_buildset = pd.read_csv('./data/cluster_build_sets.csv', names=['asin','build_set'])
+product_buildset = pd.read_csv('./data/cluster_build_sets.union.csv', names=['asin','build_set'])
 print("\nproduct_buildset({}):\n".format(len(product_buildset)), product_buildset[:5])
 
 build_set_filter = product_buildset['build_set']==int(build_set)
@@ -548,7 +549,7 @@ def get_vectors(text, nlp):
                 
 	s_token_scores = sorted(collected_terms, key=lambda pair : -pair[1])
     
-	for ranked_term in s_token_scores:
+	for ranked_term in s_token_scores[:10]:
 		term = ranked_term[0]
 		yield term, term_vector_map[term]
         
