@@ -347,7 +347,9 @@ from string import punctuation
 
 IGNORED_LEMMAS = ['-PRON-', 'PRON', 'i']
 IGNORED_POS = ['PUNCT', 'DET']
-MAX_FEATURES_PER_REVIEW = 10
+MAX_FEATURES_PER_REVIEW = 30
+MIN_CLUSTER_SIZE = 10
+MIN_SAMPLES = 1
 MERGE_TOKENS = ["\'s", "\'t"]
 
 debug = False
@@ -544,7 +546,7 @@ def get_vectors(text, nlp):
 				#		print("    {}:    {}".format(key, value))
 					#raise ValueError(msg)
 				else:
-					collected_terms.append((lemmatized_text, np.mean(these_scores)))
+					collected_terms.append((lemmatized_text, np.max(these_scores)))
 					term_vector_map[lemmatized_text] = vect
                 
 	s_token_scores = sorted(collected_terms, key=lambda pair : -pair[1])
@@ -820,7 +822,7 @@ if clustering:
 	    start = time.time()
 	    print("Creating word clusters from word vectors...")
 	    display_local_time()
-	    hdbscanner = hdbscan.HDBSCAN(min_cluster_size=10, min_samples=5, metric=HDBSCAN_METRIC, gen_min_span_tree=True, core_dist_n_jobs=8, prediction_data=True)
+	    hdbscanner = hdbscan.HDBSCAN(min_cluster_size=MIN_CLUSTER_SIZE, min_samples=MIN_SAMPLES, metric=HDBSCAN_METRIC, gen_min_span_tree=True, core_dist_n_jobs=8, prediction_data=True)
 	    hdbscanner.fit(word_vectors.root.vector)
 	    print("...completed clustering in {} seconds.".format(time.time()-start))
 
@@ -832,7 +834,7 @@ if clustering:
 	    vdim = len(word_vectors.root.vector)
 	    print("word-vectors{}: ".format(vdim), word_vectors.root.vector)
 	# Save the HDBScan model with a name indicating the number of word vectors clustered
-	    with open('./data/hdbscanner.{}.pickle'.format(build_set), 'wb') as pickle_file:
+	    with open('./data/hdbscanner.prod_rev.{}.pickle'.format(build_set), 'wb') as pickle_file:
 	        pickle.dump(hdbscanner, pickle_file)
 
 
