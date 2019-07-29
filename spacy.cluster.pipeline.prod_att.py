@@ -495,6 +495,7 @@ def get_vectors(text, nlp):
     Generates:
     ----------
     processed text (string) 
+    TF-IDF score (float)
     phrase vector (numpy.ndarray)
     """          
     # first, strip out the stop words and lowercase the words
@@ -553,7 +554,8 @@ def get_vectors(text, nlp):
     
     for ranked_term in s_token_scores[:MAX_FEATURES_PER_REVIEW]:
         term = ranked_term[0]
-        yield term, term_vector_map[term]
+        score = ranked_term[1]
+        yield term, score, term_vector_map[term]
         
 def get_attribute_features(title, description, nlp):
     """ <generator> Get text features from a given product's title and description, in the same manner as for
@@ -572,12 +574,12 @@ def get_attribute_features(title, description, nlp):
     """          
     
     if (title is not None) and (len(title)>0):
-        for term, term_vector in get_vectors(title, nlp):
-            yield term, term_vector
+        for term, score, term_vector in get_vectors(title, nlp):
+            yield term, score, term_vector
         
     if (description is not None) and (len(description)>0):
-        for term, term_vector in get_vectors(description, nlp):
-            yield term, term_vector
+        for term, score, term_vector in get_vectors(description, nlp):
+            yield term, score, term_vector
         
 
 
@@ -672,12 +674,12 @@ if non_clustered_product_features:
                     print("product: {}, rating: {}, title: '{}', description: '{}'".format(product, rating, title, description))
     
                 #print(review)
-                for processed_text, concept_vec in get_vectors(attr_text, nlp):
+                for processed_text, text_score, concept_vec in get_vectors(attr_text, nlp):
             
                     # If there were no non-stop words in a given noun chunk, we will not add it to the vectors and metadata
                     if (len(processed_text)>0):
 
-                        write_product_attr_features(out_f, product, rating, processed_text, concept_vec)
+                        write_product_attr_features(out_f, product, rating, processed_text, text_score, concept_vec)
                         features_count += 1           
 
             print("...completed processing {} products in {} seconds.".format(this_iteration_size, time.time()-iter_start_time))
@@ -709,7 +711,7 @@ if review_vectors:
     remove_file(metadata_filepath)
 
     # Create a sample vector, to determine the word vect dimension of a single entry
-    sample_vect = [vec for vec in get_vectors("example", nlp)][0][1]
+    sample_vect = [vec for vec in get_vectors("example", nlp)][0][2]
     vect_dim = sample_vect.shape
     print("Sample vect[{}]".format(vect_dim))
     index = []
@@ -772,7 +774,7 @@ if review_vectors:
                     print("product: {}, rating: {}, title: '{}', description: '{}'".format(product, rating, title, description)) 
 
                 #print(review)
-                for processed_text, concept_vec in get_vectors(attr_text, nlp):
+                for processed_text, text_score, concept_vec in get_vectors(attr_text, nlp):
             
                     # If there were no non-stop words in a given noun chunk, we will not add it to the vectors and metadata
                     if (len(processed_text)>0):
@@ -989,7 +991,7 @@ if labeling:
 # In[27]:
 
 
-    print(hdbscanner.exemplars_[:10])
+    print(hdbscanner.exemplars_[:MAX_FEATURES_PER_REVIEW])
 
 
 # In[28]:
@@ -1249,10 +1251,10 @@ def generate_sample_vectors(text, nlp):
         
         if sample_vectors is None:
             # Create an np.array with the first row as the retrieved word vector
-            sample_vectors = np.array([concept_vec[1]])
+            sample_vectors = np.array([concept_vec[2]])
         else:
             # Append the next vector to the end of the vectors array
-            sample_vectors = np.append(sample_vectors, np.array([concept_vec[1]]), axis=0)            
+            sample_vectors = np.append(sample_vectors, np.array([concept_vec[2]]), axis=0)            
     
     return sample_index, sample_vectors
 
