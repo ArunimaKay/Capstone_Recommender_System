@@ -44,6 +44,12 @@ import enchant
 
 english_dict = enchant.Dict("en_US")
 
+from nltk import FreqDist
+from nltk.corpus import brown
+from nltk.probability import ConditionalFreqDist
+from nltk.probability import ConditionalProbDist, ELEProbDist
+
+freq_dist = FreqDist(word for word in brown.words())
 
 # PyTables will be used to create huge matrices stored on disk, via HDF
 import tables
@@ -133,6 +139,17 @@ path_for_tf_ckpt = path_for_tf_metadata+'/embedding_test.ckpt'
 
 # In[5]:
 
+def get_log_prob(text):
+    prob = float(freq_dist[text.lower()])/float(freq_dist.N())
+
+    if prob == 0:
+        prob = 0.0000001
+
+    return np.log(prob)
+
+
+print("Probability of text 'example' is {}".format(get_log_prob('example')))
+
 
 def display_local_time():
     localTime = time.localtime()
@@ -164,175 +181,53 @@ def getDF(path):
   print('time taken to load data = ',end-start)
   return pd.DataFrame.from_dict(df, orient='index')
 
-start = time.time()
-print("Reading Pandas dataframe from reviews_Toys_and_Games.json.gz...")
-#df = getDF('./data/reviews_Toys_and_Games_5.json.gz')
-df = getDF('./data/reviews_Toys_and_Games.json.gz')
-print("...read reviews_Toys_and_Games.json.gz (length={}) in {} seconds.".format(len(df), time.time()-start))
+def getReviewsDF():
+    start = time.time()
+    print("Reading Pandas dataframe from reviews_Toys_and_Games_5.json.gz...")
+    df = getDF('./data/reviews_Toys_and_Games_5.json.gz')
+    print("...read reviews_Toys_and_Games_5.json.gz (length={}) in {} seconds.".format(len(df), time.time()-start))
+
+    return df
+
+def getMetadataDF():
+    # meta_Toys_and_Games.json.gz
+    print("Loading related metadata dataset:")
+    print()
+    # file = 'metadata.json.gz'
+    #file = './data/meta_Toys_and_Games.json.gz'
+    file = './data/meta_Toys_and_Games.json.gz'
+    start = time.time()
+    md = getDF(file)
+    print('Total time taken for loading the metadata dataset: {} minutes.'.format(np.round((time.time() - start)/60),2))
+    print()
+    print(md.columns)
+    print()
+    print("Number of records in metadata dataset: {}".format(len(md)))
+    print()
+    print(md.head(1))
+    print("\nNull values in metadata columns:")
+    md.isnull().sum()
 
 
-# In[8]:
+    print("Count of rows where title and description are both null, out of {} total:".format(len(md)))
+    md[pd.isnull(md['title']) & pd.isnull(md['description'])].count()
+    print("This would indicate that there are no rows with both title and description being null.")
 
+    print()
+    print("Checking for missing values in the columns\n'['reviewerID', 'asin', 'reviewText', 'overall','imUrl', 'categories', 'related', 'price']'' of the combined dataset:")
 
-# meta_Toys_and_Games.json.gz
-print("Loading related metadata dataset:")
-print()
-# file = 'metadata.json.gz'
-#file = './data/meta_Toys_and_Games.json.gz'
-file = './data/meta_sorted_combined_Toys.json.gz'
-start = time.time()
-md = getDF(file)
-print('Total time taken for loading the metadata dataset: {} minutes.'.format(np.round((time.time() - start)/60),2))
-print()
-print(md.columns)
-print()
-print("Number of records in metadata dataset: {}".format(len(md)))
-print()
-print(md.head(1))
-print("\nNull values in metadata columns:")
-md.isnull().sum()
+    dframe__ = md[['title', 'description']]
 
+    dframe_ = dframe__.dropna(axis = 0, how='all',inplace=False)
 
-# In[34]:
+    print()
+    print("There are {} records with missing values in both columns - \n['title', 'description']".format(len(dframe__) - len(dframe_)))
 
+    dframe_.head()
 
-test_str = "Plan Toy Oval Xylophone is colorful and is an enjoyable way to stimulate children's natural sense of harmony and rhythm. This solid wood xylophone plays melodic, pleasant notes. Children will experiment with rhythm and note combinations to create their own songs. A wonderful introduction to music from any preschooler"
-doc = nlp(test_str)
-for sent in doc.sents:
-    for token in sent:
-        print("**** Token: {} ****".format(token.text))
-        for token in [token]:
-            print("text:{}, lemma_:{}, pos_:{}, tag_:{}, dep_:{}, shape_:{}, is_alpha:{}, is_stop:{}, norm_:{}".format(token.text, token.lemma_, token.pos_, token.tag_, token.dep_,
-                token.shape_, token.is_alpha, token.is_stop, token.norm_))
-            if not english_dict.check(token.norm_):
-                print("Bad word! Suggestions:", english_dict.suggest(token.norm_))
-        
-        
-        
+    return md
 
-
-# In[10]:
-
-
-print("Count of rows where title and description are both null, out of {} total:".format(len(md)))
-md[pd.isnull(md['title']) & pd.isnull(md['description'])].count()
-print("This would indicate that there are no rows with both title and description being null.")
-
-print()
-print("Checking for missing values in the columns\n'['reviewerID', 'asin', 'reviewText', 'overall','imUrl', 'categories', 'related', 'price']'' of the combined dataset:")
-
-dframe__ = md[['title', 'description']]
-
-dframe_ = dframe__.dropna(axis = 0, how='all',inplace=False)
-
-print()
-print("There are {} records with missing values in both columns - \n['title', 'description']".format(len(dframe__) - len(dframe_)))
-
-dframe_.head()
-
-
-# In[11]:
-
-
-print(df.shape)
-print(df.columns)
-df.head(2)
-
-
-# In[12]:
-
-
-#Number of reviews by product
-cnt_by_product = df[['asin','reviewText']].groupby('asin').agg('count')
-cnt_by_product['reviewText'].hist(bins = [0,1,2,3,4,5,10,15,20,50,100,500,1000])
-
-print("summary of cnt_by_product:")
-print(cnt_by_product[cnt_by_product['reviewText']>4][:20])
-cnt_by_product[cnt_by_product['reviewText']>4].count()
-
-
-# In[13]:
-
-
-#Number of reviews by reviewer
-cnt_by_reviewer = df[['reviewerID','reviewText']].groupby('reviewerID').agg('count').reset_index()
-
-good_reviewers = cnt_by_reviewer[cnt_by_reviewer['reviewText']>4]
-print("good_reviewers({}):\n".format(len(good_reviewers)), good_reviewers[:5])
-
-products_by_review = len(df.groupby('asin')['reviewText'].count()>4)
-print("\n# of products with greater than 4 reviews: ", products_by_review)
-
-good_products_by_review = cnt_by_product[cnt_by_product['reviewText']>4].reset_index()
-print("\ngood_products_by_reviews({}):\n".format(len(good_products_by_review)), good_products_by_review[:5])
-
-
-# In[14]:
-
-
-
-product_buildset = pd.read_csv('./data/cluster_build_sets.union.csv', names=['asin','build_set'])
-print("\nproduct_buildset({}):\n".format(len(product_buildset)), product_buildset[:5])
-
-build_set_filter = product_buildset['build_set']==int(build_set)
-print("products with build_set=={}: {}".format(build_set, sum(build_set_filter)))
-
-products_in_buildset = product_buildset[build_set_filter]
-print("\nproducts_in_buildset({}):\n".format(len(products_in_buildset)), products_in_buildset[:5])
-
-filters_merged = pd.merge(good_products_by_review, products_in_buildset[['asin','build_set']], on='asin')
-
-print("\nfilters_merged({}):\n".format(len(filters_merged)), filters_merged[:5])
-
-# Create a merged DF, joining the reviews data with the selected products with 5+ reviews in the a build set
-df_merged = pd.merge(df[['asin','overall','reviewText']], filters_merged[['asin','build_set']], on='asin')
-# Preprocess the reviews by HTML unescaping them
-df_merged = df_merged.groupby(['asin','overall'], as_index=True)['reviewText'].apply(' '.join).apply(html.unescape).reset_index()
-print("\n\ncleaned df columns:", list(df))
-print("df_merged({}):\n".format(len(df_merged)), df_merged[:5])
-
-# Create a merged DF, with asin, reviewerID and the overall rating per review
-df_mean_merged = pd.merge(df[['asin','overall','reviewerID']], filters_merged[['asin']], on='asin').reset_index()
-print("\n\ndf_mean_merged({}):\n".format(len(df_mean_merged)), df_mean_merged[:5])
-# Aggregate the overall rating per revierwer
-df_mean_merged = df_mean_merged.groupby(['asin','reviewerID'])['overall'].mean().reset_index()
-print("\ndf_mean_merged({}):\n".format(len(df_mean_merged)), df_mean_merged[:5])
-# Aggregate the per-reviewer mean rating for an overall per-product rating
-df_mean_merged = df_mean_merged.groupby(['asin'])['overall'].mean().reset_index()
-print("\ndf_mean_merged({}):\n".format(len(df_mean_merged)), df_mean_merged[:5])
-
-# Create a merged DF, joining the metadata with the selected products with 5+ reviews in the a build set
-md_merged = pd.merge(md[['asin','title','description']], df_mean_merged[['asin','overall']], on='asin')
-print("\nmd_merged({}):\n".format(len(md_merged)), md_merged[:5])
-
-
-
-# In[15]:
-
-
-vectors_filepath = './data/vectors_each.prod_att.{}.pytab'.format(build_set)
-metadata_filepath = './data/metadata_each.prod_att.{}.tsv'.format(build_set)
-product_attribute_features_filepath = './data/product_attribute_features.{}.csv'.format(build_set)
-
-
-# In[16]:
-
-
-# Preprocess the reviews by HTML unescaping them
-
-#df_merged = df_merged.groupby(['asin','overall'], as_index=True)['reviewText'].apply(' '.join).apply(html.unescape).reset_index()
-#print("cleaned df columns:", list(df))
-
-
-# In[17]:
-
-
-print("Cleaned DF", df_merged[:5])
-print("...{} records".format(len(df_merged)))
-
-
-# In[19]:
-
+# Functions for use in other processes
 
 def remove_file(file_path):
     if os.path.isfile(file_path):
@@ -347,22 +242,32 @@ from string import punctuation
 
 IGNORED_LEMMAS = ['-PRON-', 'PRON', 'i']
 IGNORED_POS = ['PUNCT', 'DET']
-MAX_FEATURES_PER_REVIEW = 30
-MIN_CLUSTER_SIZE=10
+MAX_FEATURES_PER_REVIEW = 15
+MIN_CLUSTER_SIZE=3
 MIN_SAMPLES=1
 MERGE_TOKENS = ["\'s", "\'t"]
 
 debug = False
 
+
+def derive_token_text(token):
+    text_val = token.lemma_.lower()
+
+    if (text_val is None) or (len(text_val) == 0):
+        text_val = token.norm_.lower()
+
+    return text_val
+
+
 def get_word_scores(text_input, doc):
     if debug:
         print("Getting word scores for text:", text_input)
-    tokenlist = [token for token in doc if token.norm_.lower() not in stopWords]
-    wordlist = [token.norm_.lower() for token in tokenlist]
+    tokenlist = [token for token in doc if derive_token_text(token)  not in stopWords]
+    wordlist = [derive_token_text(token)  for token in tokenlist]
     wordfreq = []
     wordset = set(wordlist)
     for word in wordset:
-        wordfreq.append((word, np.log(wordlist.count(word)/len(wordlist))))
+        wordfreq.append((word, np.log(float(wordlist.count(word))/float(len(wordlist)))))
     
     s_word_freq = sorted(wordfreq, key=lambda pair : -pair[1])
 
@@ -379,11 +284,11 @@ def get_word_scores(text_input, doc):
 
     for token in doc:
         if token not in stopWords:
-            lower_norm = token.norm_.lower()
+            lower_norm = derive_token_text(token) 
             tf_pair = term_freq_dict.get(lower_norm)
             if (tf_pair is not None) and (lower_norm not in seen_tokens):
                 tf = tf_pair[1]
-                word_scores[lower_norm]=tf-token.prob
+                word_scores[lower_norm]=tf-get_log_prob(lower_norm)
                 seen_tokens.add(lower_norm)
 
     return word_scores
@@ -416,7 +321,7 @@ def preprocess_doc(doc):
             break
         
         token = doc[token_ind]
-        this_text = token.norm_.lower()
+        this_text = derive_token_text(token) 
         if debug:
             print("text:{}, lem:{}, pos:{}, tag:{}, dep:{}, shp:{}, alph:{}, stop:{}, norm:{}".format(token.text, token.lemma_, token.pos_, token.tag_, token.dep_, token.shape_, token.is_alpha, token.is_stop, token.norm_))
         if (prev_text is not None) and (this_text in MERGE_TOKENS):
@@ -461,10 +366,18 @@ def get_lemmatized_token(token):
     for token in [token]:
         if (token.lemma_ not in IGNORED_LEMMAS) and (token.pos_ not in IGNORED_POS) and token.text.isalpha():            
             this_text = token.text.strip()
-            
+
+            derived_text = derive_token_text(token)
+            if derived_text is None:
+                if debug:
+                    print("!!!derived text for token {} is None".format(token.text))
+                continue
+
             # check if this token contains 2 or more sequential punctuation characters
-            if check_embedded_punctuation(this_text):
+            if check_embedded_punctuation(derived_text):
                 stop_count += 1
+                if debug:
+                    print("!!!token {} is a stop word".format(token.text))
                 continue
             else:  
                 non_stop_count += 1
@@ -473,15 +386,23 @@ def get_lemmatized_token(token):
             #if this_text != token.text:
             #    processed_text.append(this_text)
             #else:
-            if english_dict.check(token.norm_):
-                processed_text.append(token.norm_.lower())   
+            if english_dict.check(derived_text):
+                processed_text.append(derived_text)
+            else:
+                if debug:
+                    print("That's not English")
     
     if non_stop_count > 3:
         return "", np.zeros(300)
+        if debug:
+                    print("!!!! Returning empty string and zeros vector...more than 3 stop words")
     else:
         if (non_stop_count > 0) and (stop_count > 0):
             vector = np.divide(vector, non_stop_count)
     
+    if debug: 
+        print("Returning processed_text '{}' and vector {}".format(processed_text, vector))
+
     return " ".join(processed_text), vector
 
 
@@ -519,7 +440,7 @@ def get_vectors(text, nlp):
     # These noun chunks will be lemmatized and collected as potential features.
     #####
     
-    collected_terms = []
+    collected_terms = set()
     term_vector_map = {}
     
     for sent in doc.sents:
@@ -533,6 +454,9 @@ def get_vectors(text, nlp):
                     this_score = word_scores.get(word)
                     if this_score is not None:
                         these_scores.append(this_score)
+                    else:
+                        these_scores.append(0.0)
+
                     #else:
                     #    print("Token not found in word scores: This should never happen. Full text = '{}'. Lemmatized text = '{}', word = '{}'".format(text, lemmatized_text, word))
                     #    print("Word scores:")
@@ -547,7 +471,7 @@ def get_vectors(text, nlp):
                 #        print("    {}:    {}".format(key, value))
                     #raise ValueError(msg)
                 else:
-                    collected_terms.append((lemmatized_text, np.max(these_scores)))
+                    collected_terms.add((lemmatized_text, np.min(these_scores)))
                     term_vector_map[lemmatized_text] = vect
                 
     s_token_scores = sorted(collected_terms, key=lambda pair : -pair[1])
@@ -555,8 +479,11 @@ def get_vectors(text, nlp):
     for ranked_term in s_token_scores[:MAX_FEATURES_PER_REVIEW]:
         term = ranked_term[0]
         score = ranked_term[1]
-        yield term, score, term_vector_map[term]
+        vector = term_vector_map[term]
         
+        if (vector is not None) and (len(vector)>0):
+            yield term, score, term_vector_map[term]
+
 def get_attribute_features(title, description, nlp):
     """ <generator> Get text features from a given product's title and description, in the same manner as for
     review text where features are the result of clustering
@@ -590,41 +517,178 @@ test_collected_terms = []
 test_term_vector_map = {}
 
 
+if debug:
+    print("\n*****************************************************\nTesting basic pipeline...\n")
 
 
-doc = nlp(test_str)
-for sent in doc.sents:
-    for token in sent:
-        #yield chunk.text, chunk.vector
-        lemmatized_text, vect = get_lemmatized_token(token)
-        if len(lemmatized_text) >0:
-            test_collected_terms.append(lemmatized_text)
-            test_term_vector_map[lemmatized_text] = vect
-            
-print("test_collected_terms: ", test_collected_terms)
+
+    test_str = "Plan Toy Oval Xylophone is colorful and is an enjoyable way to stimulate children's natural sense of harmony and rhythm. This solid wood xylophone plays melodic, pleasant notes. Children will experiment with rhythm and note combinations to create their own songs. A wonderful introduction to music from any preschooler"
+    doc = nlp(test_str)
+    for sent in doc.sents:
+        for token in sent:
+            print("**** Token: {} ****".format(token.text))
+            for token in [token]:
+                print("text:{}, lemma_:{}, pos_:{}, tag_:{}, dep_:{}, shape_:{}, is_alpha:{}, is_stop:{}, norm_:{}".format(token.text, token.lemma_, token.pos_, token.tag_, token.dep_,
+                    token.shape_, token.is_alpha, token.is_stop, token.norm_))
+                if not english_dict.check(token.norm_):
+                    print("Bad word! Suggestions:", english_dict.suggest(token.norm_))
+        
+        
+        
+
+
+    print("test_str = '{}'\n".format(test_str))
+
+    doc = nlp(test_str)
+    for sent in doc.sents:
+        print("...processing sentence '{}'...".format(sent.text))
+        for token in sent:
+            print("....processing token '{}'...".format(token.text))
+            #yield chunk.text, chunk.vector
+            lemmatized_text, vect = get_lemmatized_token(token)
+            print(".......lemmatized_text = '{}'".format(lemmatized_text))
+            print(".......vect = {}".format(vect))
+            if len(lemmatized_text) >0:
+                test_collected_terms.append(lemmatized_text)
+                test_term_vector_map[lemmatized_text] = vect
+                
+    print("test_collected_terms: ", test_collected_terms)
 
 # In[30]:
 
 
-def write_vectors(word_vects, out_m, product, rating, processed_text, concept_vec):
+def write_vectors(word_vects, out_m, out_tf_features, product, rating, processed_text, text_score, concept_vec):
     """Write product, rating, phrase and sense vector to metadata and vectors files"""
     phrase = processed_text
     sense_vector = concept_vec
-    print('\t'.join([product, str(rating),phrase]), file=out_m)
+
+    print(','.join([product, str(rating), str(text_score), phrase]), file=out_tf_features)
+    print('\t'.join([product, str(rating), phrase]), file=out_m)
     word_vects.append([sense_vector])
 
 
 # In[31]:
 
 
-def write_product_attr_features(out_f, product, rating, processed_text, concept_vec):
+def write_product_attr_features(out_f, product, rating, processed_text, text_score, concept_vec):
     """Write product, mean rating, phrase and sense vector to product attribute features file"""
     phrase = processed_text
     sense_vector = concept_vec
-    print(','.join([product, str(rating),phrase]), file=out_f)
+    print(','.join([product, str(rating),text_score,phrase]), file=out_f)
 
 
-# In[32]:
+# Parse the product reviews dataset
+df = getReviewsDF()
+
+print("Parsed product reviews dataset...")
+print(df.shape)
+print(df.columns)
+df.head(2)
+
+# Parse the product metadata dataset
+md = getMetadataDF()
+
+print("Parsed product metadata dataset...")
+print(md.shape)
+print(md.columns)
+md.head(2)
+
+
+# In[12]:
+
+
+#Number of reviews by product
+cnt_by_product = df[['asin','reviewText']].groupby('asin').agg('count')
+cnt_by_product['reviewText'].hist(bins = [0,1,2,3,4,5,10,15,20,50,100,500,1000])
+
+print("summary of cnt_by_product:")
+print(cnt_by_product[cnt_by_product['reviewText']>4][:20])
+cnt_by_product[cnt_by_product['reviewText']>4].count()
+
+
+# In[13]:
+
+
+#Number of reviews by reviewer
+cnt_by_reviewer = df[['reviewerID','reviewText']].groupby('reviewerID').agg('count').reset_index()
+
+good_reviewers = cnt_by_reviewer[cnt_by_reviewer['reviewText']>4]
+print("good_reviewers({}):\n".format(len(good_reviewers)), good_reviewers[:5])
+
+products_by_review = len(df.groupby('asin')['reviewText'].count()>4)
+print("\n# of products with greater than 4 reviews: ", products_by_review)
+
+good_products_by_review = cnt_by_product[cnt_by_product['reviewText']>4].reset_index()
+print("\ngood_products_by_reviews({}):\n".format(len(good_products_by_review)), good_products_by_review[:5])
+
+
+# In[14]:
+
+products_in_5 = pd.read_csv('./data/products_in_5.csv', names=['asin'])
+print("\products_in_5({}):\n".format(len(products_in_5)), products_in_5[:5])
+
+product_buildset = pd.read_csv('./data/cluster_build_sets.union.csv', names=['asin','build_set'])
+print("\nproduct_buildset({}):\n".format(len(product_buildset)), product_buildset[:5])
+
+build_set_filter = product_buildset['build_set']==int(build_set)
+print("products with build_set=={}: {}".format(build_set, sum(build_set_filter)))
+
+products_in_buildset = product_buildset[build_set_filter]
+print("\nproducts_in_buildset({}):\n".format(len(products_in_buildset)), products_in_buildset[:5])
+
+filters_merged = pd.merge(good_products_by_review, products_in_buildset[['asin','build_set']], on='asin')
+
+print("\nfilters_merged({}):\n".format(len(filters_merged)), filters_merged[:5])
+
+# Create a merged DF, joining the reviews data with the selected products with 5+ reviews in the a build set
+df_merged = pd.merge(df[['asin','overall','reviewText']], filters_merged[['asin','build_set']], on='asin')
+# Preprocess the reviews by HTML unescaping them
+df_merged = df_merged.groupby(['asin','overall'], as_index=True)['reviewText'].apply(' '.join).apply(html.unescape).reset_index()
+print("\n\ncleaned df columns:", list(df))
+print("df_merged({}):\n".format(len(df_merged)), df_merged[:5])
+
+# Create a merged DF, with asin, reviewerID and the overall rating per review
+df_mean_merged = pd.merge(df[['asin','overall','reviewerID']], filters_merged[['asin']], on='asin').reset_index()
+print("\n\ndf_mean_merged({}):\n".format(len(df_mean_merged)), df_mean_merged[:5])
+# Aggregate the overall rating per revierwer
+df_mean_merged = df_mean_merged.groupby(['asin','reviewerID'])['overall'].mean().reset_index()
+print("\ndf_mean_merged({}):\n".format(len(df_mean_merged)), df_mean_merged[:5])
+# Aggregate the per-reviewer mean rating for an overall per-product rating
+df_mean_merged = df_mean_merged.groupby(['asin'])['overall'].mean().reset_index()
+print("\ndf_mean_merged({}):\n".format(len(df_mean_merged)), df_mean_merged[:5])
+
+# Create a merged DF, joining the metadata with the selected products with 5+ reviews in the a build set
+md_merged = pd.merge(md[['asin','title','description']], df_mean_merged[['asin','overall']], on='asin')
+print("\nmd_merged({}):\n".format(len(md_merged)), md_merged[:5])
+
+
+
+# In[15]:
+
+
+vectors_filepath = './data/vectors_each.prod_att.{}.pytab'.format(build_set)
+metadata_filepath = './data/metadata_each.prod_att.{}.tsv'.format(build_set)
+tf_features_filepath = './data/product_attribute_tf_features.{}.csv'.format(build_set)
+product_attribute_features_filepath = './data/product_attribute_features.{}.csv'.format(build_set)
+
+
+# In[16]:
+
+
+# Preprocess the reviews by HTML unescaping them
+
+#df_merged = df_merged.groupby(['asin','overall'], as_index=True)['reviewText'].apply(' '.join).apply(html.unescape).reset_index()
+#print("cleaned df columns:", list(df))
+
+
+# In[17]:
+
+
+print("Cleaned DF", df_merged[:5])
+print("...{} records".format(len(df_merged)))
+
+
+# In[19]:
 
 
 if non_clustered_product_features:
@@ -711,8 +775,8 @@ if review_vectors:
     remove_file(metadata_filepath)
 
     # Create a sample vector, to determine the word vect dimension of a single entry
-    sample_vect = [vec for vec in get_vectors("example", nlp)][0][2]
-    vect_dim = sample_vect.shape
+    sample_vect = [vec for _, _, vec in get_vectors("example text can be useful", nlp)]
+    vect_dim = 300
     print("Sample vect[{}]".format(vect_dim))
     index = []
     output = None
@@ -739,12 +803,12 @@ if review_vectors:
 
     with open_file(vectors_filepath, mode="w", title="Word Vectors") as out_v:
     
-        atom = tables.Float32Atom(vect_dim[0])
+        atom = tables.Float32Atom(vect_dim)
         shape = (0,)
         filters = tables.Filters(complevel=5, complib='zlib')
         word_vect = out_v.create_earray(out_v.root, 'vector', atom, shape, filters=filters)
 
-    with open(metadata_filepath, 'a') as out_m, open_file(vectors_filepath, mode="a", title="Word Vectors") as out_v:
+    with open(metadata_filepath, 'w') as out_m, open(tf_features_filepath, 'w') as out_tf_features, open_file(vectors_filepath, mode="a", title="Word Vectors") as out_v:
     
         print("Word Vectors: ", out_v)
     
@@ -779,7 +843,7 @@ if review_vectors:
                     # If there were no non-stop words in a given noun chunk, we will not add it to the vectors and metadata
                     if (len(processed_text)>0):
 
-                        write_vectors(out_v.root.vector, out_m, product, rating, processed_text, concept_vec)
+                        write_vectors(out_v.root.vector, out_m, out_tf_features, product, rating, processed_text, text_score, concept_vec)
                         vectors_count += 1
                     
                         # If this run is not just writing to disk, but should also build the vectors
